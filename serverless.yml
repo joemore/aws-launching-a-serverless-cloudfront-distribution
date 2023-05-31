@@ -1,0 +1,115 @@
+# NOTE 0 - This ain't working! 😭
+
+# Note 1 - To add a custom domain Alias, please make sure you have a valid 
+# certificate for the domain in AWS Certificate Manager (ACM) preferably in us-east-1 region
+
+# Note 2 - Once your Distro has deployed, go ro Route 53 and add a CNAME for subdomain.domain.com and point it to the 
+# cloudfront domain name e.g. "xxxxxxxx.cloudfront.net"
+
+# Note 3 - Adding CloudFlare (To be added)
+
+# Note 5 - Try to only edit the values below in the custom section
+
+custom:
+  IAM_PROFILE: YourProfileName
+  SERVICE_NAME: myprefix-s3-cloudfront
+  MY_REGION: us-east-1
+  MY_BUCKET: myprefix-private-bucket
+  MY_BUCKET_ORIGIN_ID: MyS3Origin
+  MY_DISTRO_COMMENT: HotRabbit Distro
+  MY_DISTRO_PRICE_CLASS: PriceClass_100  # Set the price class to "Use Only North America and Europe" (PriceClass_200 is also europe etc, PriceClass_all is basically everywhere AWS supports)
+  MY_DOMAIN_ALIAS: myprefix.domain.com
+  MY_ACM_CERTIFICATE_ARN: arn:aws:acm:us-east-1:xxxxxxx:certificate/xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxx # Your SSL Cert found in https://us-east-1.console.aws.amazon.com/acm/home?region=us-east-1
+
+# Try not to edit after here... 
+
+service: ${self:custom.SERVICE_NAME}
+
+provider:
+  name: aws
+  profile: ${self:custom.IAM_PROFILE}
+  runtime: nodejs18.x
+  region: ${self:custom.MY_REGION} 
+
+resources:
+  Resources:
+
+  # The S3 Bucket
+    MyS3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.MY_BUCKET}
+        AccessControl: Private   # Set the bucket access control to private
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - "*"
+              AllowedMethods:
+                - HEAD
+                - GET
+              AllowedHeaders:
+                - "*"
+                
+  # The S3 Bucket Policy
+    PrivateBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        PolicyDocument:
+          Id: MyPolicy
+          Version: "2012-10-17"
+          Statement:
+            - Sid: ReadForGetBucketObjects
+              Effect: Allow
+              Principal:
+                CanonicalUser: !GetAtt OriginAccessIdentity.S3CanonicalUserId
+              Action:
+                - s3:GetObject
+              Resource: !Sub arn:aws:s3:::${MyS3Bucket}/*
+        Bucket:
+          Ref: MyS3Bucket
+    OriginAccessIdentity:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: ${self:custom.MY_DISTRO_COMMENT}-${sls:stage}
+
+  # The Cloud Front Distribution
+    MyCloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          IPV6Enabled: true
+          Comment: ${self:custom.MY_DISTRO_COMMENT}   # Add a description to the CloudFront distribution
+          PriceClass: ${self:custom.MY_DISTRO_PRICE_CLASS}   # Set the price class to "Use Only North America and Europe"
+          
+          #Custom Domain alias (and certificate) - uncomment 5 lines below of below to use the CloudFront domain name i.e. xxxxxxxx.cloudfront.net
+          Aliases:
+            - ${self:custom.MY_DOMAIN_ALIAS}   # Replace with your desired CloudFront distribution alias (Make sure you have a cert in "AWS Certificate Manager (ACM)" in the us-east-1 region)
+          ViewerCertificate:
+            AcmCertificateArn: ${self:custom.MY_ACM_CERTIFICATE_ARN}   # Replace with your ACM certificate ARN
+            SslSupportMethod: sni-only
+          
+          Origins:
+            - DomainName: ${self:custom.MY_BUCKET}.s3.${self:custom.MY_REGION}.amazonaws.com
+              Id: ${self:custom.MY_BUCKET_ORIGIN_ID}
+              S3OriginConfig:
+                OriginAccessIdentity: ''
+          DefaultCacheBehavior:
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            TargetOriginId: ${self:custom.MY_BUCKET_ORIGIN_ID}
+            DefaultTTL: 0
+            MinTTL: 0
+            MaxTTL: 0
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+              Headers:
+                - Access-Control-Allow-Methods
+                - Access-Control-Allow-Origin
+                - Origin
+            ViewerProtocolPolicy: redirect-to-https
+          DefaultRootObject: index.html
+          
+          HttpVersion: http2
