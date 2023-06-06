@@ -1,48 +1,36 @@
-# NOTE 0 - This ain't working! 😭
-
 # Note 1 - To add a custom domain Alias, please make sure you have a valid
 # certificate for the domain in AWS Certificate Manager (ACM) preferably in us-east-1 region
 
-# Note 2 - Once your Distro has deployed, go ro Route 53 and add a CNAME for subdomain.domain.com and point it to the
+# Note 2 - Once your Distribution has deployed, go ro Route 53 and add a CNAME for subdomain.domain.com and point it to the
 # cloudfront domain name e.g. "xxxxxxxx.cloudfront.net"
 
-# Note 3 - Adding CloudFlare (To be added)
+# Note 3 - if you would like to use CloudFlare to point to your CF Distribution... (to be added) 
 
-# Note 5 - Try to only edit the values below in the custom section
+# Edit the values in .env.example and rename to .env to begin 
 
-custom:
-  IAM_PROFILE: default
-  SERVICE_NAME: skeletapp-s3-cloudfront
-  MY_REGION: us-east-1
-  MY_BUCKET: skeletapp-private-bucket
-  MY_BUCKET_ORIGIN_ID: MyS3Origin
-  MY_DISTRO_COMMENT: HotRabbit Distro
-  MY_DISTRO_PRICE_CLASS: PriceClass_100 # Set the price class to "Use Only North America and Europe" (PriceClass_200 is also europe etc, PriceClass_all is basically everywhere AWS supports)
-  MY_DOMAIN_ALIAS: tests3.skeletapp.co.uk
-  MY_ACM_CERTIFICATE_ARN: arn:aws:acm:us-east-1:150145317413:certificate/e63876fc-2335-4a46-b92e-4a83cd656084 # Your SSL Cert found in https://us-east-1.console.aws.amazon.com/acm/home?region=us-east-1
-
-# Try not to edit after here...
-
-service: ${self:custom.SERVICE_NAME}
+service: ${env:SERVICE_NAME}
+useDotenv: true
 
 provider:
   name: aws
-  profile: ${self:custom.IAM_PROFILE}
+  profile: ${env:IAM_PROFILE}
+  region: ${env:MY_REGION}
   runtime: nodejs18.x
-  region: ${self:custom.MY_REGION}
-
+  
 resources:
   Resources:
     # The S3 Bucket
     MyS3Bucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:custom.MY_BUCKET}
+        BucketName: ${env:MY_BUCKET}
         AccessControl: Private # Set the bucket access control to private
+
+        # https://docs.aws.amazon.com/AmazonS3/latest/userguide/ManageCorsUsing.html
         CorsConfiguration:
           CorsRules:
             - AllowedOrigins:
-                - "*"
+                - ${env:ALLOWED_ORIGINS}
               AllowedMethods:
                 - HEAD
                 - GET
@@ -72,7 +60,7 @@ resources:
       Type: AWS::CloudFront::OriginAccessControl
       Properties:
         OriginAccessControlConfig:
-          Name: ${self:custom.MY_BUCKET_ORIGIN_ID}
+          Name: ${env:MY_BUCKET_ORIGIN_ID}
           OriginAccessControlOriginType: s3
           SigningBehavior: always
           SigningProtocol: sigv4
@@ -84,36 +72,44 @@ resources:
         DistributionConfig:
           Enabled: true
           IPV6Enabled: true
-          Comment: ${self:custom.MY_DISTRO_COMMENT} # Add a description to the CloudFront distribution
-          PriceClass: ${self:custom.MY_DISTRO_PRICE_CLASS} # Set the price class to "Use Only North America and Europe"
+          Comment: ${env:MY_DISTRO_COMMENT} # Add a description to the CloudFront distribution
+          PriceClass: ${env:MY_DISTRO_PRICE_CLASS} # Set the price class to "Use Only North America and Europe"
 
-          #Custom Domain alias (and certificate) - uncomment 5 lines below of below to use the CloudFront domain name i.e. xxxxxxxx.cloudfront.net
+          #optional 1 - Custom Domain alias - Comment out the 5 lines below if you don not want to use the domain alias and instead just use xxxxxxxx.cloudfront.net
           Aliases:
-            - ${self:custom.MY_DOMAIN_ALIAS} # Replace with your desired CloudFront distribution alias (Make sure you have a cert in "AWS Certificate Manager (ACM)" in the us-east-1 region)
+            - ${env:MY_DOMAIN_ALIAS} # Replace with your desired CloudFront distribution alias (Make sure you have a cert in "AWS Certificate Manager (ACM)" in the us-east-1 region)
           ViewerCertificate:
-            AcmCertificateArn: ${self:custom.MY_ACM_CERTIFICATE_ARN} # Replace with your ACM certificate ARN
+            AcmCertificateArn: ${env:MY_ACM_CERTIFICATE_ARN} # Replace with your ACM certificate ARN
             SslSupportMethod: sni-only
 
           Origins:
-            - DomainName: ${self:custom.MY_BUCKET}.s3.${self:custom.MY_REGION}.amazonaws.com
-              Id: ${self:custom.MY_BUCKET_ORIGIN_ID}
+            - DomainName: ${env:MY_BUCKET}.s3.${env:MY_REGION}.amazonaws.com
+              Id: ${env:MY_BUCKET_ORIGIN_ID}
               S3OriginConfig: {}
               OriginAccessControlId: !GetAtt OriginAccessControl.Id
           DefaultCacheBehavior:
             AllowedMethods: [GET, HEAD, OPTIONS]
-            TargetOriginId: ${self:custom.MY_BUCKET_ORIGIN_ID}
+            TargetOriginId: ${env:MY_BUCKET_ORIGIN_ID}
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # No caching
             OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf # CORS-S3
             ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # SecurityHeadersPolicy
             ViewerProtocolPolicy: redirect-to-https
-          DefaultRootObject: index.html
+          # Default Response example
+          DefaultRootObject: index.json
+          ## Any 404's will go directly to /404.json (just an example)
+          CustomErrorResponses:
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /404.json
 
           HttpVersion: http2
+
+  # optional 2 - Route53 Auto Assign subdomain - Comment out the below if you do not want Route53 to update DNS and add a record for your new subdomain        
     Route53RecordIPv4:
       Type: AWS::Route53::RecordSet
       Properties:
-        HostedZoneName: skeletapp.co.uk.
-        Name: ${self:custom.MY_DOMAIN_ALIAS}.
+        HostedZoneName: ${env:MY_ROOT_DOMAIN}.
+        Name: ${env:MY_DOMAIN_ALIAS}.
         Type: A
         AliasTarget:
           DNSName: !GetAtt MyCloudFrontDistribution.DomainName
@@ -121,8 +117,8 @@ resources:
     Route53RecordIPv6:
       Type: AWS::Route53::RecordSet
       Properties:
-        HostedZoneName: skeletapp.co.uk.
-        Name: ${self:custom.MY_DOMAIN_ALIAS}.
+        HostedZoneName: ${env:MY_ROOT_DOMAIN}.
+        Name: ${env:MY_DOMAIN_ALIAS}.
         Type: AAAA
         AliasTarget:
           DNSName: !GetAtt MyCloudFrontDistribution.DomainName
