@@ -42,8 +42,8 @@ Testing a fetch with javascript:
 fetch('https://subdomain.example.com/test.json')
 	.then(response => response.text())
 	.then(data => console.log(data));
-
 ```
 
 If you are getting CORS errors then check your ALLOWED_ORIGINS is either set to *, the domain or a wildcard subdomain such as https://*.example.com you are accessing it from.
 
+For a more detailed write up, take a look at my blog article [AWS - Launching a ServerLess Cloudfront Distribution](https://www.joemore.com/blogs/aws-launching-a-serverless-cloudfront-distribution)
